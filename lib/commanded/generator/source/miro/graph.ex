@@ -64,7 +64,7 @@ defmodule Commanded.Generator.Source.Miro.Graph do
     projection: %{
       color: "#d5f692",
       expected_in: :one_or_more,
-      expected_out: :none,
+      expected_out: :maybe_one_or_more,
       possible_outs: @outs[:projection],
       possible_ins: @ins[:projection]
     }
@@ -225,11 +225,6 @@ defmodule Commanded.Generator.Source.Miro.Graph do
   defp log(list, _v, :ok), do: list
   defp log(list, v, {:error, reason}), do: ["#{v.id}'s #{reason}" | list]
   defp log(list, v, outputs), do: Enum.reduce(outputs, list, &log(&2, v, &1))
-
-  def none(_dir, _, _t) do
-    :ok
-    # FIXME
-  end
 
   def only_one(dir, [], _t), do: {:error, "should have one #{dir}"}
 
