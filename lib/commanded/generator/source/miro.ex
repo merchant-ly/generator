@@ -325,7 +325,7 @@ defmodule Commanded.Generator.Source.Miro do
   defp is_a?(%{"style" => %{"backgroundColor" => "#a6ccf5"}}, :command), do: true
   defp is_a?(%{"style" => %{"backgroundColor" => "#ff9d48"}}, :event), do: true
   defp is_a?(%{"style" => %{"backgroundColor" => "#ea94bb"}}, :event_handler), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#ffcee0"}}, :external_system), do: true
+  defp is_a?(%{"style" => %{"backgroundColor" => "#f5f6f8"}}, :external_system), do: true
   defp is_a?(%{"style" => %{"backgroundColor" => "#be88c7"}}, :process_manager), do: true
   defp is_a?(%{"style" => %{"backgroundColor" => "#d5f692"}}, :projection), do: true
   defp is_a?(_widget, _type), do: false
