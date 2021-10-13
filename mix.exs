@@ -24,7 +24,8 @@ defmodule Commanded.Generator.MixProject do
       {:jason, "~> 1.2"},
       {:floki, "~> 0.30"},
       {:tesla, "~> 1.4"},
-      {:libgraph, "~> 0.13"}
+      {:libgraph, "~> 0.13"},
+      {:sourceror, github: "doorgan/sourceror"}
     ]
   end
 end
