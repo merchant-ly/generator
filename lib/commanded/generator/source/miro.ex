@@ -110,10 +110,12 @@ defmodule Commanded.Generator.Source.Miro do
 
     {name, fields} = parse_text(text)
 
+    namespace = Module.concat([module, Events])
+
     event =
       case Model.find_event(model, module, name) do
         %Event{} = event -> event
-        nil -> Event.new(Module.concat([module, Events]), name, fields)
+        nil -> Event.new(namespace, name, fields)
       end
 
     aggregate = Aggregate.add_event(aggregate, event)
