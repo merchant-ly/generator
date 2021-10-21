@@ -58,6 +58,7 @@ defmodule Mix.Tasks.Commanded.New do
     dev: :boolean,
     install: :boolean,
     miro: :string,
+    miro_graph: :string,
     module: :string,
     prefix: :string,
     projections: :boolean,
@@ -114,11 +115,14 @@ defmodule Mix.Tasks.Commanded.New do
   defp build_model(%Project{} = project) do
     %Project{app_mod: app_mod, opts: opts} = project
 
-    case Keyword.get(opts, :miro) do
-      board_id when is_binary(board_id) ->
-        Project.build_model(project, Miro, namespace: app_mod, board_id: board_id)
+    cond do
+      is_binary(miro_board_id = Keyword.get(opts, :miro)) ->
+        Project.build_model(project, Miro, namespace: app_mod, board_id: miro_board_id)
 
-      nil ->
+      is_binary(miro_graph_board_id = Keyword.get(opts, :miro_graph)) ->
+        Project.build_model(project, Miro.Graph, namespace: app_mod, board_id: miro_graph_board_id)
+
+      true ->
         project
     end
   end

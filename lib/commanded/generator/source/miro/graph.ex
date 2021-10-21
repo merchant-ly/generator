@@ -73,6 +73,17 @@ defmodule Commanded.Generator.Source.Miro.Graph do
   @stickers Enum.into(@nodes, %{}, fn {k, v} -> {v.color, k} end)
   @node_types Map.keys(@nodes)
 
+  def build(opts) do
+    namespace = Keyword.fetch!(opts, :namespace)
+    board_id = Keyword.fetch!(opts, :board_id)
+
+    with {:ok, graph} <- build_raw_graph(board_id) do
+      IO.inspect(graph)
+
+      {:ok, graph}
+    end
+  end
+
   def build_raw_graph(board) do
     {:ok, stickers} = Client.new() |> Client.list_all_widgets(board, widgetType: "sticker")
     {:ok, lines} = Client.new() |> Client.list_all_widgets(board, widgetType: "line")

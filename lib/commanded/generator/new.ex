@@ -35,7 +35,11 @@ defmodule Commanded.Generator.New do
   ])
 
   template(:aggregate, [
-    {:eex, "aggregate/aggregate.ex", :project, "lib/:app/:aggregate/:aggregate.ex"}
+    {{:eex_plus,
+      %{
+        command: "aggregate/aggregate_command_execute.eex",
+        event: "aggregate/aggregate_event_handle.eex"
+      }}, "aggregate/aggregate.ex", :project, "lib/:app/:aggregate/:aggregate.ex"}
   ])
 
   template(:command, [
@@ -56,12 +60,18 @@ defmodule Commanded.Generator.New do
   ])
 
   template(:process_manager, [
-    {:eex, "process_manager/process_manager.ex", :project,
+    {{:eex_plus,
+      %{
+        handle: "process_manager/process_event_handle.eex",
+        apply: "process_manager/process_apply_handle.eex",
+        interested: "process_manager/process_interested_handle.eex"
+      }}, "process_manager/process_manager.ex", :project,
      "lib/:app/processes/:process_manager.ex"}
   ])
 
   template(:projection, [
-    {:eex, "projection/projector.ex", :project, "lib/:app/projections/:projector.ex"},
+    {{:eex_plus, %{event: "projection/projector_event_handle.eex"}}, "projection/projector.ex",
+     :project, "lib/:app/projections/:projector.ex"},
     {:eex, "projection/projection.ex", :project, "lib/:app/projections/:projection.ex"}
   ])
 

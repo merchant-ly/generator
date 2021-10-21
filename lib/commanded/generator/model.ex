@@ -121,7 +121,19 @@ defmodule Commanded.Generator.Model do
     |> Stream.flat_map(fn %Aggregate{events: events} -> events end)
     |> Stream.concat(events)
     |> Enum.find(fn
-      %Event{module: ^module, name: ^name} -> true
+      %Event{module: ^module, name: ^name} = event -> true
+      %Event{} = event -> false
+    end)
+  end
+
+  def find_event_without_namespace(%Model{} = model, name) do
+    %Model{aggregates: aggregates, events: events} = model
+
+    aggregates
+    |> Stream.flat_map(fn %Aggregate{events: events} -> events end)
+    |> Stream.concat(events)
+    |> Enum.find(fn
+      %Event{name: ^name} -> true
       %Event{} -> false
     end)
   end

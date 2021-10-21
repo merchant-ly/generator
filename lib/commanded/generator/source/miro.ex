@@ -144,7 +144,7 @@ defmodule Commanded.Generator.Source.Miro do
         parse_text(text)
       end)
       |> Enum.reject(fn {name, _fields} ->
-        case Model.find_event(model, namespace, name) do
+        case Model.find_event_without_namespace(model, name) do
           %Event{} -> true
           nil -> false
         end
@@ -283,15 +283,14 @@ defmodule Commanded.Generator.Source.Miro do
     |> Enum.reduce([], fn sticker, acc ->
       %{"text" => text} = sticker
       {name, _fields} = parse_text(text)
+
       aggregate_source = connected_to(widgets, sticker["id"], "sticker", &is_a?(&1, :aggregate))
 
       external_source =
         connected_to(widgets, sticker["id"], "sticker", &is_a?(&1, :external_system))
 
-      # all_sources = connected_to(widgets, sticker["id"], "sticker")
-
       sources = [{:aggregate, aggregate_source}, {:external_system, external_source}]
-      matcher = fn {src, widgets} -> length(widgets) > 0 end
+      matcher = fn {_src, widgets} -> length(widgets) > 0 end
 
       module =
         case Enum.find(sources, matcher) do
@@ -299,8 +298,10 @@ defmodule Commanded.Generator.Source.Miro do
             {agg_name, _fields} = parse_text(agg["text"])
 
             case Model.find_aggregate(model, agg_name) do
-              %Aggregate{module: module} = aggregate ->
-                aggregate
+              %Aggregate{module: module} ->
+                {event_name, _fields} = parse_text(sticker["text"])
+
+                Module.concat([module, Events, String.replace(event_name, " ", "")])
 
               nil ->
                 raise "BOOM can't find aggregate with name: #{agg_name}"
@@ -309,9 +310,9 @@ defmodule Commanded.Generator.Source.Miro do
           {:external_system, [ext]} ->
             {ext_name, _fields} = parse_text(ext["text"])
 
-            module = Module.concat([namespace, ExternalSystems, String.replace(name, " ", "")])
+            Module.concat([namespace, ExternalSystems, String.replace(ext_name, " ", "")])
 
-          {source, widgets} ->
+          {_source, _widgets} ->
             raise "Found more than one source for event #{name}"
         end
 

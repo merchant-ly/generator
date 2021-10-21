@@ -1,0 +1,4 @@
+@impl Commanded.ProcessManagers.ProcessManager
+def handle(%<%= @process_manager_module %>{}, %<%= @event.module %>{}) do
+  []
+end
