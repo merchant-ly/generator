@@ -690,7 +690,7 @@ defmodule Commanded.Generator do
          ]},
         %{commands: commands, events: events}
       ) do
-    end_of_expression = Keyword.get(meta, :end_of_expression)
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
     z = Z.right(z)
 
     aggregate_def(z, Z.node(z), %{
@@ -753,7 +753,7 @@ defmodule Commanded.Generator do
          ]},
         %{handles: events} = map
       ) do
-    end_of_expression = Keyword.get(meta, :end_of_expression)
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
     z = Z.right(z)
 
     process_def(z, Z.node(z), %{map | handles: [{event_name_list, end_of_expression} | events]})
@@ -772,7 +772,7 @@ defmodule Commanded.Generator do
          ]},
         %{applies: applies} = map
       ) do
-    end_of_expression = Keyword.get(meta, :end_of_expression)
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
     z = Z.right(z)
 
     process_def(z, Z.node(z), %{
@@ -790,7 +790,7 @@ defmodule Commanded.Generator do
          ]},
         %{interesteds: interesteds} = map
       ) do
-    end_of_expression = Keyword.get(meta, :end_of_expression)
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
     z = Z.right(z)
 
     process_def(z, Z.node(z), %{
@@ -811,11 +811,35 @@ defmodule Commanded.Generator do
 
   def projection_def(
         z,
+        {:project, meta, [{:=, _, [inside, _block]}, second, third]},
+        map
+      ) do
+    projection_def(z, {:project, meta, [inside, second, third]}, map)
+  end
+
+  def projection_def(
+        z,
+        {:project, meta, [first, {:=, _, [inside, _block]}, third]},
+        map
+      ) do
+    projection_def(z, {:project, meta, [first, inside, third]}, map)
+  end
+
+  def projection_def(
+        z,
+        {:project, meta, [first, second, {:=, _, [inside, _block]}]},
+        map
+      ) do
+    projection_def(z, {:project, meta, [first, second, inside]}, map)
+  end
+
+  def projection_def(
+        z,
         {:project, meta,
          [{:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]}, _, {:fn, _, _}]},
         %{events: events}
       ) do
-    end_of_expression = Keyword.get(meta, :end_of_expression)
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
     z = Z.right(z)
 
     projection_def(z, Z.node(z), %{events: [{event_name_list, end_of_expression} | events]})
