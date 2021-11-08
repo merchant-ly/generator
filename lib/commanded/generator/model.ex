@@ -4,6 +4,7 @@ defmodule Commanded.Generator.Model do
     Command,
     Event,
     EventHandler,
+    ExternalSystem,
     ProcessManager,
     Projection
   }
@@ -22,6 +23,7 @@ defmodule Commanded.Generator.Model do
     commands: [],
     events: [],
     event_handlers: [],
+    external_systems: [],
     process_managers: [],
     projections: []
   ]
@@ -41,6 +43,22 @@ defmodule Commanded.Generator.Model do
       end)
 
     %Model{model | event_handlers: Enum.sort_by([event_handler | event_handlers], & &1.name)}
+  end
+
+  def add_external_system(%Model{} = model, %ExternalSystem{} = external_system) do
+    %Model{external_systems: external_systems} = model
+    %ExternalSystem{name: name} = external_system
+
+    external_systems =
+      Enum.reject(external_systems, fn
+        %ExternalSystem{name: ^name} -> true
+        %ExternalSystem{} -> false
+      end)
+
+    %Model{
+      model
+      | external_systems: Enum.sort_by([external_system | external_systems], & &1.name)
+    }
   end
 
   def add_process_manager(%Model{} = model, %ProcessManager{} = process_manager) do
@@ -114,6 +132,15 @@ defmodule Commanded.Generator.Model do
     Enum.find(event_handlers, fn
       %EventHandler{name: ^name} -> true
       %EventHandler{} -> false
+    end)
+  end
+
+  def find_external_system(%Model{} = model, name) do
+    %Model{external_systems: external_systems} = model
+
+    Enum.find(external_systems, fn
+      %ExternalSystem{name: ^name} -> true
+      %ExternalSystem{} -> false
     end)
   end
 
