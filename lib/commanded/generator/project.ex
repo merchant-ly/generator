@@ -46,9 +46,13 @@ defmodule Commanded.Generator.Project do
   end
 
   def build_model(%Project{} = project, source, args) do
-    {:ok, model} = source.build(args)
+    case source.build(args) do
+      {:ok, model} ->
+        {:ok, %Project{project | model: model}}
 
-    %Project{project | model: model}
+      {:error, error_term} ->
+        {:error, error_term}
+    end
   end
 
   def join_path(%Project{} = project, location, path) when location in [:project, :app] do

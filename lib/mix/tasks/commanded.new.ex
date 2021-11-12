@@ -116,7 +116,21 @@ defmodule Mix.Tasks.Commanded.New do
 
     case Keyword.get(opts, :miro) do
       board_id when is_binary(board_id) ->
-        Project.build_model(project, Miro, namespace: app_mod, board_id: board_id)
+        # SEEME non binary entries raise fail; 'commanded.new' is fundamentally meant to ingest CLI input
+        case Project.build_model(project, Miro, namespace: app_mod, board_id: board_id) do
+          {:ok, project} ->
+            project
+
+          {:error, %{errors: errors, model: model}} ->
+            Mix.shell().error(errors)
+
+            if Mix.shell().yes?("\nThere were some errors.  Do you want to continue?") do
+              # SEEME Feels weird to reach into the project here to edit it.
+              %Project{project | model: model}
+            else
+              raise("Halting on errors.")
+            end
+        end
 
       nil ->
         project
