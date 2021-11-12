@@ -32,6 +32,32 @@ defmodule Commanded.Generator.Model do
     %Model{namespace: namespace}
   end
 
+  def add_aggregate(%Model{} = model, %Aggregate{} = aggregate) do
+    %Model{aggregates: aggregates} = model
+    %Aggregate{name: name} = aggregate
+
+    aggregates =
+      Enum.reject(aggregates, fn
+        %Aggregate{name: ^name} -> true
+        %Aggregate{} -> false
+      end)
+
+    %Model{model | aggregates: Enum.sort_by([aggregate | aggregates], & &1.name)}
+  end
+
+  def add_event(%Model{} = model, %Event{} = event) do
+    %Model{events: events} = model
+    %Event{name: name} = event
+
+    events =
+      Enum.reject(events, fn
+        %Event{name: ^name} -> true
+        %Event{} -> false
+      end)
+
+    %Model{model | events: Enum.sort_by([event | events], & &1.name)}
+  end
+
   def add_event_handler(%Model{} = model, %EventHandler{} = event_handler) do
     %Model{event_handlers: event_handlers} = model
     %EventHandler{name: name} = event_handler
