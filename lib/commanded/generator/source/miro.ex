@@ -6,13 +6,14 @@ defmodule Commanded.Generator.Source.Miro do
     Command,
     Event,
     EventHandler,
-    Field,
     ProcessManager,
     Projection
   }
 
   alias Commanded.Generator.Source
-  alias Commanded.Generator.Source.Miro.Client
+  alias Commanded.Generator.Source.Graph, as: SourceGraph
+  alias Commanded.Generator.Source.Miro.Data
+  alias Commanded.Generator.Source.Miro.Graph, as: MiroGraph
 
   @behaviour Source
 
@@ -20,302 +21,233 @@ defmodule Commanded.Generator.Source.Miro do
     namespace = Keyword.fetch!(opts, :namespace)
     board_id = Keyword.fetch!(opts, :board_id)
 
-    client = Client.new()
+    with {:ok, data} <- Data.build(board_id),
+         model_graph <- MiroGraph.build(data),
+         {nodes, edges, errors} <- SourceGraph.build(model_graph) do
+      IO.inspect(errors, label: "errors")
+      node_map = Enum.into(nodes, %{}, &{&1.id, &1})
+      by_types = Enum.group_by(nodes, & &1.type)
 
-    with {:ok, widgets} <- Client.list_all_widgets(client, board_id) do
       model =
         Model.new(namespace)
-        |> include_aggregates(widgets)
-        |> include_events(widgets)
-        |> include_event_handlers(widgets)
-        |> include_process_managers(widgets)
-        |> include_projections(widgets)
+        |> include_aggregates(by_types.aggregate, node_map, edges)
+        |> include_events(node_map, edges)
+        |> include_event_handlers(by_types.event_handler, node_map, edges)
+        |> include_process_managers(by_types.process_manager, node_map, edges)
+        |> include_projections(by_types.projection, node_map, edges)
 
       {:ok, model}
     end
   end
 
   # Include aggregates and their associated commands and events.
-  defp include_aggregates(%Model{} = model, widgets) do
-    %Model{namespace: namespace} = model
-
-    widgets
-    |> typeof("sticker", &is_a?(&1, :aggregate))
-    |> Enum.reduce(model, fn sticker, model ->
-      %{"id" => id, "text" => text} = sticker
-
-      {name, fields} = parse_text(text)
-
-      module = Module.concat([namespace, String.replace(name, " ", "")])
-
-      aggregate =
-        case Model.find_aggregate(model, name) do
-          %Aggregate{} = aggregate ->
-            aggregate
-
-          nil ->
-            %Aggregate{name: name, module: module, fields: fields}
-        end
-
-      aggregate =
-        widgets
-        |> connected_to(id, "sticker")
-        |> Enum.reduce(aggregate, fn sticker, aggregate ->
-          cond do
-            is_a?(sticker, :command) ->
-              %{"text" => text} = sticker
-
-              {name, fields} = parse_text(text)
-
-              command =
-                case Model.find_command(model, name) do
-                  %Command{} = command -> command
-                  nil -> Command.new(Module.concat([module, Commands]), name, fields)
-                end
-
-              Aggregate.add_command(aggregate, command)
-
-            is_a?(sticker, :event) ->
-              include_aggregate_event(model, aggregate, sticker, widgets, [sticker])
-
-            true ->
-              aggregate
-          end
-        end)
-
-      %Model{aggregates: aggregates} = model
-
-      aggregates =
-        Enum.reject(aggregates, fn
-          %Aggregate{name: ^name} -> true
-          %Aggregate{} -> false
-        end)
-
-      %Model{model | aggregates: Enum.sort_by([aggregate | aggregates], & &1.name)}
-    end)
-  end
-
-  defp include_aggregate_event(
-         %Model{} = model,
-         %Aggregate{} = aggregate,
-         sticker,
-         widgets,
-         accumulator
+  defp include_aggregates(
+         %Model{namespace: namespace} = orig_model,
+         grouped_aggregates,
+         node_map,
+         edges
        ) do
-    %Aggregate{module: module} = aggregate
-    %{"id" => id, "text" => text} = sticker
+    edge_list = Enum.map(edges, &elem(&1, 0))
 
-    {name, fields} = parse_text(text)
+    prepped_aggs =
+      grouped_aggregates
+      |> Enum.group_by(& &1.name)
+      |> Enum.map(fn {_name, aggregates} ->
+        commands =
+          Enum.flat_map(aggregates, fn aggregate ->
+            Enum.filter(edge_list, fn %{v2: agg_id} ->
+              agg_id == aggregate.id
+            end)
+            |> Enum.map(& &1.v1)
+            |> Enum.map(&node_map[&1])
+          end)
 
-    event =
-      case Model.find_event(model, name) do
-        %Event{} = event -> event
-        nil -> Event.new(Module.concat([module, Events]), name, fields)
-      end
+        events =
+          Enum.flat_map(aggregates, fn aggregate ->
+            Enum.filter(edge_list, fn %{v1: agg_id} ->
+              agg_id == aggregate.id
+            end)
+            |> Enum.map(& &1.v2)
+            |> Enum.map(&node_map[&1])
+          end)
 
-    aggregate = Aggregate.add_event(aggregate, event)
-
-    # Inclue any events connected to this event
-    widgets
-    |> connected_to(id, "sticker", &is_a?(&1, :event))
-    |> Enum.reject(&Enum.member?(accumulator, &1))
-    |> Enum.reduce(aggregate, fn sticker, aggregate ->
-      include_aggregate_event(model, aggregate, sticker, widgets, [sticker | accumulator])
-    end)
-  end
-
-  # Include events which aren't produced by an aggregate.
-  defp include_events(%Model{} = model, widgets) do
-    %Model{events: events, namespace: namespace} = model
-
-    new_events =
-      widgets
-      |> typeof("sticker", &is_a?(&1, :event))
-      |> Enum.map(fn sticker ->
-        %{"text" => text} = sticker
-
-        parse_text(text)
-      end)
-      |> Enum.reject(fn {name, _fields} ->
-        case Model.find_event(model, name) do
-          %Event{} -> true
-          nil -> false
-        end
-      end)
-      |> Enum.map(fn {name, fields} ->
-        namespace = Module.concat([namespace, Events])
-
-        Event.new(namespace, name, fields)
+        [aggregate | _] = aggregates
+        %{aggregate: aggregate, events: events, commands: commands}
       end)
 
-    %Model{model | events: Enum.sort_by(events ++ new_events, & &1.name)}
-  end
+    Enum.reduce(prepped_aggs, orig_model, fn node, model ->
+      agg = node.aggregate
+      agg_module = Module.concat([namespace, String.replace(agg.name, " ", "")])
 
-  defp include_event_handlers(%Model{} = model, widgets) do
-    %Model{namespace: namespace} = model
+      aggregate = %Aggregate{
+        name: agg.name,
+        module: agg_module,
+        fields: []
+      }
 
-    widgets
-    |> typeof("sticker", &is_a?(&1, :event_handler))
-    |> Enum.reduce(model, fn sticker, model ->
-      %{"id" => id, "text" => text} = sticker
+      aggregate =
+        Enum.reduce(node.commands, aggregate, fn cmd, agg ->
+          command = Command.new(Module.concat([agg_module, Commands]), cmd.name, cmd.fields)
+          Aggregate.add_command(agg, command)
+        end)
 
-      {name, _fields} = parse_text(text)
+      aggregate =
+        Enum.reduce(node.events, aggregate, fn evt, agg ->
+          event = Event.new(Module.concat([agg_module, Events]), evt.name, evt.fields)
+          Aggregate.add_event(agg, event)
+        end)
 
-      module = Module.concat([namespace, Handlers, String.replace(name, " ", "")])
-
-      event_handler =
-        case Model.find_event_handler(model, name) do
-          %EventHandler{} = event_handler ->
-            event_handler
-
-          nil ->
-            %EventHandler{name: name, module: module}
-        end
-
-      referenced_events = referenced_events(model, widgets, id)
-
-      event_handler =
-        Enum.reduce(referenced_events, event_handler, &EventHandler.add_event(&2, &1))
-
-      Model.add_event_handler(model, event_handler)
+      Model.add_aggregate(model, aggregate)
     end)
   end
 
-  defp include_process_managers(%Model{} = model, widgets) do
-    %Model{namespace: namespace} = model
+  defp include_events(%Model{namespace: namespace} = orig_model, node_map, edges) do
+    events =
+      edges
+      |> Enum.filter(fn
+        {%{v2: _event_id}, {:external_system, :event}} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn {%{v2: event_id}, _} ->
+        node = node_map[event_id]
 
-    widgets
-    |> typeof("sticker", &is_a?(&1, :process_manager))
-    |> Enum.reduce(model, fn sticker, model ->
-      %{"id" => id, "text" => text} = sticker
-
-      {name, _fields} = parse_text(text)
-
-      process_manager =
-        case Model.find_process_manager(model, name) do
-          %ProcessManager{} = process_manager ->
-            process_manager
-
-          nil ->
-            module = Module.concat([namespace, Processes, String.replace(name, " ", "")])
-
-            %ProcessManager{name: name, module: module}
-        end
-
-      referenced_events = referenced_events(model, widgets, id)
-
-      process_manager =
-        Enum.reduce(referenced_events, process_manager, &ProcessManager.add_event(&2, &1))
-
-      Model.add_process_manager(model, process_manager)
-    end)
-  end
-
-  defp include_projections(%Model{} = model, widgets) do
-    %Model{namespace: namespace} = model
-
-    widgets
-    |> typeof("sticker", &is_a?(&1, :projection))
-    |> Enum.reduce(model, fn sticker, model ->
-      %{"id" => id, "text" => text} = sticker
-
-      {name, fields} = parse_text(text)
-
-      projection =
-        case Model.find_projection(model, name) do
-          %Projection{} = projection ->
-            projection
-
-          nil ->
-            module = Module.concat([namespace, Projections, String.replace(name, " ", "")])
-
-            %Projection{name: name, module: module, fields: fields}
-        end
-
-      referenced_events = referenced_events(model, widgets, id)
-
-      projection = Enum.reduce(referenced_events, projection, &Projection.add_event(&2, &1))
-
-      Model.add_projection(model, projection)
-    end)
-  end
-
-  defp referenced_events(%Model{} = model, widgets, id) do
-    widgets
-    |> connected_to(id, "sticker", &is_a?(&1, :event))
-    |> Enum.reduce([], fn sticker, acc ->
-      %{"text" => text} = sticker
-
-      {name, _fields} = parse_text(text)
-
-      case Model.find_event(model, name) do
-        %Event{} = event -> [event | acc]
-        nil -> acc
-      end
-    end)
-  end
-
-  defp is_a?(widget, type)
-  defp is_a?(%{"style" => %{"backgroundColor" => "#f5d128"}}, :aggregate), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#a6ccf5"}}, :command), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#ff9d48"}}, :event), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#ea94bb"}}, :event_handler), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#be88c7"}}, :process_manager), do: true
-  defp is_a?(%{"style" => %{"backgroundColor" => "#d5f692"}}, :projection), do: true
-  defp is_a?(_widget, _type), do: false
-
-  # Extract the name and optional fields from a sticker's text.
-  defp parse_text(text) do
-    parsed = Floki.parse_fragment!(text)
-
-    {name_parts, fields} =
-      Enum.reduce(parsed, {[], []}, fn
-        {"p", _attrs, [text]}, {name_parts, fields} ->
-          case Regex.split(~r/^[^A-Za-z]/, text) do
-            [_prefix, name] ->
-              name = String.trim(name)
-              field = String.replace(name, " ", "") |> Macro.underscore() |> String.to_atom()
-
-              {name_parts, fields ++ [%Field{name: name, field: field}]}
-
-            [name] ->
-              name = String.trim(name)
-
-              {name_parts ++ [name], fields}
-          end
-
-        {_tag_name, _attrs, _child_nodes}, acc ->
-          acc
+        Event.new(Module.concat([namespace, Events]), node.name, node.fields)
       end)
 
-    name = Enum.join(name_parts, "")
-
-    {name, fields}
-  end
-
-  defp find_by_id(widgets, id) do
-    Enum.find(widgets, fn
-      %{"id" => ^id} -> true
-      _widget -> false
+    Enum.reduce(events, orig_model, fn evt, model ->
+      Model.add_event(model, evt)
     end)
   end
 
-  defp typeof(widgets, type, filter \\ nil) do
-    Enum.filter(widgets, fn
-      %{"type" => ^type} = widget -> if is_nil(filter), do: true, else: filter.(widget)
-      %{"type" => _type} -> false
+  defp include_event_handlers(
+         %Model{namespace: namespace} = orig_model,
+         grouped_event_handlers,
+         node_map,
+         edges
+       ) do
+    edge_list = Enum.map(edges, &elem(&1, 0))
+
+    prepped_event_handlers =
+      grouped_event_handlers
+      |> Enum.group_by(& &1.name)
+      |> Enum.map(fn {_name, evt_handlers} ->
+        events =
+          Enum.flat_map(evt_handlers, fn evt_handler ->
+            Enum.filter(edge_list, fn %{v2: evt_handler_id} ->
+              evt_handler_id == evt_handler.id
+            end)
+            |> Enum.map(& &1.v1)
+            |> Enum.map(&node_map[&1])
+          end)
+
+        [evt_handler | _] = evt_handlers
+        %{event_handler: evt_handler, events: events}
+      end)
+
+    Enum.reduce(prepped_event_handlers, orig_model, fn node, model ->
+      eh_node = node.event_handler
+      module = Module.concat([namespace, Handlers, String.replace(eh_node.name, " ", "")])
+
+      evt_handler = %EventHandler{
+        name: eh_node.name,
+        module: module
+      }
+
+      handler =
+        Enum.reduce(node.events, evt_handler, fn evt, evth ->
+          event = Event.new(module, evt.name, evt.fields)
+          EventHandler.add_event(evth, event)
+        end)
+
+      Model.add_event_handler(model, handler)
     end)
   end
 
-  defp connected_to(widgets, id, type, filter \\ nil) do
-    widgets
-    |> typeof("line")
-    |> Enum.flat_map(fn
-      %{"startWidget" => %{"id" => ^id}, "endWidget" => %{"id" => end_id}} -> [end_id]
-      %{"startWidget" => %{"id" => start_id}, "endWidget" => %{"id" => ^id}} -> [start_id]
-      _line -> []
+  defp include_process_managers(
+         %Model{namespace: namespace} = orig_model,
+         grouped_process_managers,
+         node_map,
+         edges
+       ) do
+    edge_list = Enum.map(edges, &elem(&1, 0))
+
+    prepped_process_managers =
+      grouped_process_managers
+      |> Enum.group_by(& &1.name)
+      |> Enum.map(fn {_name, proc_managers} ->
+        events =
+          Enum.flat_map(proc_managers, fn proc_manager ->
+            Enum.filter(edge_list, fn %{v2: proc_manager_id} ->
+              proc_manager_id == proc_manager.id
+            end)
+            |> Enum.map(& &1.v1)
+            |> Enum.map(&node_map[&1])
+          end)
+
+        [proc_manager | _] = proc_managers
+        %{process_manager: proc_manager, events: events}
+      end)
+
+    Enum.reduce(prepped_process_managers, orig_model, fn node, model ->
+      eh_node = node.process_manager
+      module = Module.concat([namespace, Processes, String.replace(eh_node.name, " ", "")])
+
+      proc_manager = %ProcessManager{
+        name: eh_node.name,
+        module: module
+      }
+
+      handler =
+        Enum.reduce(node.events, proc_manager, fn evt, evth ->
+          event = Event.new(module, evt.name, evt.fields)
+          ProcessManager.add_event(evth, event)
+        end)
+
+      Model.add_process_manager(model, handler)
     end)
-    |> Enum.map(&find_by_id(widgets, &1))
-    |> typeof(type, filter)
+  end
+
+  defp include_projections(
+         %Model{namespace: namespace} = orig_model,
+         grouped_projections,
+         node_map,
+         edges
+       ) do
+    edge_list = Enum.map(edges, &elem(&1, 0))
+
+    prepped_projections =
+      grouped_projections
+      |> Enum.group_by(& &1.name)
+      |> Enum.map(fn {_name, projs} ->
+        events =
+          Enum.flat_map(projs, fn proj ->
+            Enum.filter(edge_list, fn %{v2: proj_id} ->
+              proj_id == proj.id
+            end)
+            |> Enum.map(& &1.v1)
+            |> Enum.map(&node_map[&1])
+          end)
+
+        [proj | _] = projs
+        %{projection: proj, events: events}
+      end)
+
+    Enum.reduce(prepped_projections, orig_model, fn node, model ->
+      eh_node = node.projection
+      module = Module.concat([namespace, String.replace(eh_node.name, " ", "")])
+
+      proj = %Projection{
+        name: eh_node.name,
+        module: module
+      }
+
+      handler =
+        Enum.reduce(node.events, proj, fn evt, evth ->
+          event = Event.new(Module.concat([module, Events]), evt.name, evt.fields)
+          Projection.add_event(evth, event)
+        end)
+
+      Model.add_projection(model, handler)
+    end)
   end
 end
