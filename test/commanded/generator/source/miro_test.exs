@@ -21,7 +21,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with a single event" do
       mock_request("boards/widgets/list_all_single_event.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -36,7 +36,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with a single aggregate, command, and event" do
       mock_request("boards/widgets/list_all_single_aggregate_command_event.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -67,7 +67,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with one of all supported types" do
       mock_request("boards/widgets/list_all.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -134,7 +134,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with one of all supported types with fields" do
       mock_request("boards/widgets/list_all_with_fields.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -198,7 +198,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with multiple events produced from a single command" do
       mock_request("boards/widgets/list_all_multiple_events_from_one_command.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -297,7 +297,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with circular references" do
       mock_request("boards/widgets/list_all_circular_refs.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -355,7 +355,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "with duplicates" do
       mock_request("boards/widgets/list_all_with_duplicates.json")
 
-      {:ok, model} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
+      {:ok, %{model: model}} = Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(
                %Model{
@@ -415,7 +415,7 @@ defmodule Commanded.Generator.Source.MiroTest do
     test "conference domain example" do
       mock_request("boards/widgets/list_all_conference_example.json")
 
-      {:ok, %Model{aggregates: aggregates}} =
+      {:ok, %{model: %Model{aggregates: aggregates}}} =
         Miro.build(namespace: MyApp, board_id: "o9J_lJibPCc=")
 
       assert match?(

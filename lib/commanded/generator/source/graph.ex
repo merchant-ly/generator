@@ -10,6 +10,7 @@ defmodule Commanded.Generator.Source.Graph do
   connected to a command, it will issue a error.
   """
   alias Graph, as: LibGraph
+  alias Commanded.Generator.Source.Miro.Graph, as: MiroGraph
 
   defmodule Node do
     defstruct [
@@ -100,32 +101,126 @@ defmodule Commanded.Generator.Source.Graph do
   end
 
   def build(graph) do
-    {nodes, node_errors} =
-      LibGraph.Reducers.Dfs.reduce(graph, {[], []}, fn id, {nodes, errors} ->
-        node = load_node(graph, id)
+    {node_errors, nodes} = remove_unknown_nodes(graph)
 
-        acc =
-          case node.type do
-            :unknown ->
-              error = {:error, "#{node.name} color is not a known type, ignoring this node."}
-              {nodes, [error | errors]}
+    {edge_errors, edges} = remove_invalid_edges(graph)
 
-            _known ->
-              new_errors = check_node_degree(graph, node)
-              {[node | nodes], new_errors ++ errors}
-          end
+    parent_nodes = consolidate_parent_nodes(nodes)
 
-        {:next, acc}
+    nodes = [%Node{id: -1, name: "Implied External System", type: :external_system} | nodes]
+
+    edges =
+      edges
+      |> add_implicit_external_edges(nodes)
+      |> relink_chained_events_to_source()
+
+    graph =
+      LibGraph.new()
+      |> MiroGraph.graph_reduce(nodes, fn node, graph ->
+        LibGraph.add_vertex(graph, node.id, node)
+      end)
+      |> MiroGraph.graph_reduce(edges, fn {edge, _}, graph ->
+        LibGraph.add_edge(graph, edge.v1, edge.v2)
       end)
 
-    {edge_errors, edges} =
-      graph
-      |> LibGraph.edges()
-      |> Enum.map(&check_edge(graph, &1))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.split_with(&is_binary/1)
+    {graph, parent_nodes, nodes, node_errors ++ edge_errors}
+  end
 
-    {nodes, edges, node_errors ++ edge_errors}
+  defp add_implicit_external_edges(edges, nodes) do
+    implicit_edges =
+      nodes
+      |> Enum.filter(&(&1.type == :event))
+      |> Enum.filter(fn node -> has_no_incoming?(edges, node.id) end)
+      |> Enum.map(fn node -> {Graph.Edge.new(-1, node.id), {:external_system, :event}} end)
+
+    edges ++ implicit_edges
+  end
+
+  defp has_no_incoming?(edges, id) do
+    not Enum.any?(edges, fn {edge, _} -> id == edge.v2 end)
+  end
+
+  defp relink_chained_events_to_source(edges) do
+    Enum.map(edges, fn
+      {graph_edge, {:event, :event}} = edge ->
+        {source_edge, {from_type, _}} = find_non_event_source(edge, edges)
+
+        {%{graph_edge | v1: source_edge.v1}, {from_type, :event}}
+
+      edge ->
+        edge
+    end)
+  end
+
+  defp find_non_event_source({edge, {:event, :event}}, edges) do
+    # Note that if an event has two valid ins we later display an error, but we don't ignore the edge.
+    # What to do in this situation is ambiguous, we just return the first the edge from a non-event .
+    edges
+    |> Enum.find(fn {possible_source, _} -> possible_source.v2 == edge.v1 end)
+    |> find_non_event_source(edges)
+  end
+
+  defp find_non_event_source(nil, _edges) do
+    raise("There should always be at least the implicit external system as a source")
+  end
+
+  defp find_non_event_source(edge, _edges) do
+    edge
+  end
+
+  defp consolidate_parent_nodes(nodes) do
+    nodes
+    |> Enum.filter(&(&1.type not in [:command, :event]))
+    |> Enum.group_by(&{&1.type, &1.name})
+    |> Enum.map(fn {{type, name}, nodes} ->
+      nodes
+      |> Enum.reduce(%{ids: [], boards: [], fields: []}, fn curr, acc ->
+        acc
+        |> update_in([:ids], fn list -> [curr.id | list] end)
+        |> update_in([:boards], fn list -> [curr.board | list] end)
+        |> update_in([:fields], fn list ->
+          if length(curr.fields) > length(list), do: curr.fields, else: list
+        end)
+      end)
+      |> Map.put(:type, type)
+      |> Map.put(:name, name)
+    end)
+  end
+
+  defp remove_unknown_nodes(graph) do
+    LibGraph.Reducers.Dfs.reduce(graph, {[], []}, fn id, {errors, nodes} ->
+      node = load_node(graph, id)
+
+      acc =
+        case node.type do
+          :unknown ->
+            error = {:error, "#{node.name} color is not a known type, ignoring this node."}
+            {[error | errors], nodes}
+
+          _known ->
+            if empty_name?(node.name) do
+              error = {:error, "#{node.type} has no name, ignoring this node."}
+              {[error | errors], nodes}
+            else
+              new_errors = check_node_degree(graph, node)
+              {new_errors ++ errors, [node | nodes]}
+            end
+        end
+
+      {:next, acc}
+    end)
+  end
+
+  defp empty_name?(nil), do: true
+  defp empty_name?(""), do: true
+  defp empty_name?(_), do: false
+
+  defp remove_invalid_edges(graph) do
+    graph
+    |> LibGraph.edges()
+    |> Enum.map(&check_edge(graph, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.split_with(&is_binary/1)
   end
 
   def load_node(g, v) do

@@ -36,27 +36,36 @@ defmodule Commanded.Generator.Source.Miro.Data do
     # Two requests is worse for rate-limits, but scoping to stickers or lines can get us more data.
     with {:ok, stickers} <- Client.list_all_widgets(client, board, widgetType: "sticker"),
          {:ok, lines} <- Client.list_all_widgets(client, board, widgetType: "line") do
-      vertices = Enum.map(stickers, &parse_sticker(&1, board))
-      edges = Enum.map(lines, &parse_line(&1, board))
+      vertices = stickers |> Enum.map(&parse_sticker(&1, board)) |> Enum.reject(&is_nil/1)
+      edges = lines |> Enum.map(&parse_line(&1, board)) |> Enum.reject(&is_nil/1)
 
       {:ok, %{vertices: vertices ++ acc.vertices, edges: edges ++ acc.edges}}
     end
   end
 
   defp parse_sticker(sticker, board) do
-    %Sticker{
-      id: id(sticker),
-      position: position(sticker),
-      text: text(sticker),
-      color: color(sticker),
-      board: board
-    }
+    if type(sticker) == "sticker" do
+      %Sticker{
+        id: id(sticker),
+        position: position(sticker),
+        text: text(sticker),
+        color: color(sticker),
+        board: board
+      }
+    else
+      nil
+    end
   end
 
   defp parse_line(line, board) do
-    %Line{from: edge_start(line), to: edge_finish(line), board: board}
+    if type(line) == "line" do
+      %Line{from: edge_start(line), to: edge_finish(line), board: board}
+    else
+      nil
+    end
   end
 
+  defp type(sticker_or_line), do: get_in(sticker_or_line, ~w(type))
   defp edge_start(line), do: get_in(line, ~w(startWidget id))
   defp edge_finish(line), do: get_in(line, ~w(endWidget id))
   defp color(sticker), do: get_in(sticker, ~w(style backgroundColor))

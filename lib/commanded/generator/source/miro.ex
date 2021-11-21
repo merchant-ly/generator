@@ -6,6 +6,7 @@ defmodule Commanded.Generator.Source.Miro do
     Command,
     Event,
     EventHandler,
+    Field,
     ProcessManager,
     Projection
   }
@@ -17,237 +18,314 @@ defmodule Commanded.Generator.Source.Miro do
 
   @behaviour Source
 
+  defp fields(%{fields: fields}) do
+    Enum.map(fields, &struct(Field, &1))
+  end
+
   def build(opts) do
     namespace = Keyword.fetch!(opts, :namespace)
     board_id = Keyword.fetch!(opts, :board_id)
 
     with {:ok, data} <- Data.build(board_id),
          model_graph <- MiroGraph.build(data),
-         {nodes, edges, errors} <- SourceGraph.build(model_graph) do
-      IO.inspect(errors, label: "errors")
-      node_map = Enum.into(nodes, %{}, &{&1.id, &1})
-      by_types = Enum.group_by(nodes, & &1.type)
+         {graph, parent_nodes, nodes, errors} <-
+           SourceGraph.build(model_graph) do
+      by_type =
+        Map.merge(
+          %{event_handler: [], events: [], aggregate: [], process_manager: [], projection: []},
+          Enum.group_by(parent_nodes, & &1.type)
+        )
+
+      event_map = build_events(namespace, by_type.aggregate, graph)
+      command_map = build_commands(namespace, by_type.aggregate, graph)
+
+      bare_events =
+        Enum.filter(nodes, fn node ->
+          node.type == :event and not Map.has_key?(event_map, node.id)
+        end)
+
+      event_map =
+        Enum.into(bare_events, event_map, fn evt ->
+          {evt.id, Event.new(Module.concat([namespace, Events]), evt.name, fields(evt))}
+        end)
 
       model =
         Model.new(namespace)
-        |> include_aggregates(by_types.aggregate, node_map, edges)
-        |> include_events(node_map, edges)
-        |> include_event_handlers(by_types.event_handler, node_map, edges)
-        |> include_process_managers(by_types.process_manager, node_map, edges)
-        |> include_projections(by_types.projection, node_map, edges)
+        |> include_aggregates(by_type.aggregate, event_map, command_map, graph)
+        |> include_events(bare_events)
+        |> include_event_handlers(by_type.event_handler, event_map, graph)
+        |> include_process_managers(by_type.process_manager, event_map, graph)
+        |> include_projections(by_type.projection, event_map, graph)
 
-      {:ok, model}
+      {:ok, %{model: model, errors: errors}}
     end
   end
 
-  # Include aggregates and their associated commands and events.
+  defp build_commands(namespace, grouped_aggregates, graph) do
+    Enum.reduce(grouped_aggregates, %{}, fn group, map ->
+      module = Module.concat([namespace, String.replace(group.name, ~r/\s/, "")])
+
+      commands =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.incoming(graph, &1))
+        |> Enum.uniq()
+
+      Enum.into(commands, map, fn cmd ->
+        {cmd.id, Command.new(Module.concat([module, Commands]), cmd.name, fields(cmd))}
+      end)
+    end)
+  end
+
+  defp build_events(namespace, grouped_aggregates, graph) do
+    Enum.reduce(grouped_aggregates, %{}, fn group, map ->
+      module = Module.concat([namespace, String.replace(group.name, ~r/\s/, "")])
+
+      events =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.outgoing(graph, &1))
+        |> Enum.uniq()
+
+      Enum.into(events, map, fn evt ->
+        {evt.id, Event.new(Module.concat([module, Events]), evt.name, fields(evt))}
+      end)
+    end)
+  end
+
   defp include_aggregates(
          %Model{namespace: namespace} = orig_model,
          grouped_aggregates,
-         node_map,
-         edges
+         event_map,
+         command_map,
+         graph
        ) do
-    edge_list = Enum.map(edges, &elem(&1, 0))
+    Enum.reduce(grouped_aggregates, orig_model, fn group, model ->
+      module = Module.concat([namespace, String.replace(group.name, ~r/\s/, "")])
 
-    prepped_aggs =
-      grouped_aggregates
-      |> Enum.group_by(& &1.name)
-      |> Enum.map(fn {_name, aggregates} ->
-        commands =
-          Enum.flat_map(aggregates, fn aggregate ->
-            Enum.filter(edge_list, fn %{v2: agg_id} ->
-              agg_id == aggregate.id
-            end)
-            |> Enum.map(& &1.v1)
-            |> Enum.map(&node_map[&1])
-          end)
+      commands =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.incoming(graph, &1))
+        |> Enum.uniq()
 
-        events =
-          Enum.flat_map(aggregates, fn aggregate ->
-            Enum.filter(edge_list, fn %{v1: agg_id} ->
-              agg_id == aggregate.id
-            end)
-            |> Enum.map(& &1.v2)
-            |> Enum.map(&node_map[&1])
-          end)
-
-        [aggregate | _] = aggregates
-        %{aggregate: aggregate, events: events, commands: commands}
-      end)
-
-    Enum.reduce(prepped_aggs, orig_model, fn node, model ->
-      agg = node.aggregate
-      agg_module = Module.concat([namespace, String.replace(agg.name, " ", "")])
+      events =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.outgoing(graph, &1))
+        |> Enum.uniq()
 
       aggregate = %Aggregate{
-        name: agg.name,
-        module: agg_module,
+        name: group.name,
+        module: module,
         fields: []
       }
 
       aggregate =
-        Enum.reduce(node.commands, aggregate, fn cmd, agg ->
-          command = Command.new(Module.concat([agg_module, Commands]), cmd.name, cmd.fields)
-          Aggregate.add_command(agg, command)
+        Enum.reduce(commands, aggregate, fn cmd, agg ->
+          Aggregate.add_command(agg, command_map[cmd.id])
         end)
 
       aggregate =
-        Enum.reduce(node.events, aggregate, fn evt, agg ->
-          event = Event.new(Module.concat([agg_module, Events]), evt.name, evt.fields)
-          Aggregate.add_event(agg, event)
+        Enum.reduce(events, aggregate, fn evt, agg ->
+          Aggregate.add_event(agg, event_map[evt.id])
         end)
 
       Model.add_aggregate(model, aggregate)
     end)
   end
 
-  defp include_events(%Model{namespace: namespace} = orig_model, node_map, edges) do
-    events =
-      edges
-      |> Enum.filter(fn
-        {%{v2: _event_id}, {:external_system, :event}} -> true
-        _ -> false
-      end)
-      |> Enum.map(fn {%{v2: event_id}, _} ->
-        node = node_map[event_id]
-
-        Event.new(Module.concat([namespace, Events]), node.name, node.fields)
-      end)
-
-    Enum.reduce(events, orig_model, fn evt, model ->
-      Model.add_event(model, evt)
+  defp include_events(%Model{namespace: namespace} = orig_model, bare_events) do
+    Enum.reduce(bare_events, orig_model, fn evt, model ->
+      event = Event.new(Module.concat([namespace, Events]), evt.name, fields(evt))
+      Model.add_event(model, event)
     end)
   end
 
   defp include_event_handlers(
          %Model{namespace: namespace} = orig_model,
          grouped_event_handlers,
-         node_map,
-         edges
+         event_map,
+         graph
        ) do
-    edge_list = Enum.map(edges, &elem(&1, 0))
+    Enum.reduce(grouped_event_handlers, orig_model, fn group, model ->
+      module = Module.concat([namespace, Handlers, String.replace(group.name, " ", "")])
 
-    prepped_event_handlers =
-      grouped_event_handlers
-      |> Enum.group_by(& &1.name)
-      |> Enum.map(fn {_name, evt_handlers} ->
-        events =
-          Enum.flat_map(evt_handlers, fn evt_handler ->
-            Enum.filter(edge_list, fn %{v2: evt_handler_id} ->
-              evt_handler_id == evt_handler.id
-            end)
-            |> Enum.map(& &1.v1)
-            |> Enum.map(&node_map[&1])
-          end)
-
-        [evt_handler | _] = evt_handlers
-        %{event_handler: evt_handler, events: events}
-      end)
-
-    Enum.reduce(prepped_event_handlers, orig_model, fn node, model ->
-      eh_node = node.event_handler
-      module = Module.concat([namespace, Handlers, String.replace(eh_node.name, " ", "")])
+      events =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.incoming(graph, &1))
+        |> Enum.uniq()
 
       evt_handler = %EventHandler{
-        name: eh_node.name,
+        name: group.name,
         module: module
       }
 
       handler =
-        Enum.reduce(node.events, evt_handler, fn evt, evth ->
-          event = Event.new(module, evt.name, evt.fields)
-          EventHandler.add_event(evth, event)
+        Enum.reduce(events, evt_handler, fn evt, eh ->
+          event = event_map[evt.id]
+          EventHandler.add_event(eh, event)
         end)
 
       Model.add_event_handler(model, handler)
     end)
   end
 
+  %Commanded.Generator.Model{
+    aggregates: [
+      %Commanded.Generator.Model.Aggregate{
+        commands: [
+          %Commanded.Generator.Model.Command{
+            fields: [],
+            module: MyApp.Aggregate.Commands.CommandA,
+            name: "Command A"
+          },
+          %Commanded.Generator.Model.Command{
+            fields: [],
+            module: MyApp.Aggregate.Commands.CommandB,
+            name: "Command B"
+          },
+          %Commanded.Generator.Model.Command{
+            fields: [],
+            module: MyApp.Aggregate.Commands.CommandC,
+            name: "Command C"
+          }
+        ],
+        events: [
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventA,
+            name: "Event A"
+          },
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventB,
+            name: "Event B"
+          },
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventC,
+            name: "Event C"
+          }
+        ],
+        fields: [],
+        module: MyApp.Aggregate,
+        name: "Aggregate"
+      }
+    ],
+    commands: [],
+    event_handlers: [
+      %Commanded.Generator.Model.EventHandler{
+        events: [
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventA,
+            name: "Event A"
+          },
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventB,
+            name: "Event B"
+          }
+        ],
+        module: MyApp.Handlers.EventHandler,
+        name: "Event Handler"
+      }
+    ],
+    events: [],
+    external_systems: [],
+    namespace: MyApp,
+    process_managers: [
+      %Commanded.Generator.Model.ProcessManager{
+        events: [
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventA,
+            name: "Event A"
+          },
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventB,
+            name: "Event B"
+          }
+        ],
+        module: MyApp.Processes.ProcessManager,
+        name: "Process Manager"
+      }
+    ],
+    projections: [
+      %Commanded.Generator.Model.Projection{
+        events: [
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventA,
+            name: "Event A"
+          },
+          %Commanded.Generator.Model.Event{
+            fields: [],
+            module: MyApp.Aggregate.Events.EventB,
+            name: "Event B"
+          }
+        ],
+        fields: [],
+        module: MyApp.Projections.Projection,
+        name: "Projection"
+      }
+    ]
+  }
+
   defp include_process_managers(
          %Model{namespace: namespace} = orig_model,
          grouped_process_managers,
-         node_map,
-         edges
+         event_map,
+         graph
        ) do
-    edge_list = Enum.map(edges, &elem(&1, 0))
+    Enum.reduce(grouped_process_managers, orig_model, fn group, model ->
+      module = Module.concat([namespace, Processes, String.replace(group.name, ~r/\s/, "")])
 
-    prepped_process_managers =
-      grouped_process_managers
-      |> Enum.group_by(& &1.name)
-      |> Enum.map(fn {_name, proc_managers} ->
-        events =
-          Enum.flat_map(proc_managers, fn proc_manager ->
-            Enum.filter(edge_list, fn %{v2: proc_manager_id} ->
-              proc_manager_id == proc_manager.id
-            end)
-            |> Enum.map(& &1.v1)
-            |> Enum.map(&node_map[&1])
-          end)
+      events =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.incoming(graph, &1))
+        |> Enum.uniq()
 
-        [proc_manager | _] = proc_managers
-        %{process_manager: proc_manager, events: events}
-      end)
-
-    Enum.reduce(prepped_process_managers, orig_model, fn node, model ->
-      eh_node = node.process_manager
-      module = Module.concat([namespace, Processes, String.replace(eh_node.name, " ", "")])
-
-      proc_manager = %ProcessManager{
-        name: eh_node.name,
+      process_manager = %ProcessManager{
+        name: group.name,
         module: module
       }
 
-      handler =
-        Enum.reduce(node.events, proc_manager, fn evt, evth ->
-          event = Event.new(module, evt.name, evt.fields)
-          ProcessManager.add_event(evth, event)
+      process_manager =
+        Enum.reduce(events, process_manager, fn evt, pm ->
+          event = event_map[evt.id]
+          ProcessManager.add_event(pm, event)
         end)
 
-      Model.add_process_manager(model, handler)
+      Model.add_process_manager(model, process_manager)
     end)
   end
 
   defp include_projections(
          %Model{namespace: namespace} = orig_model,
          grouped_projections,
-         node_map,
-         edges
+         event_map,
+         graph
        ) do
-    edge_list = Enum.map(edges, &elem(&1, 0))
+    Enum.reduce(grouped_projections, orig_model, fn group, model ->
+      module = Module.concat([namespace, Projections, String.replace(group.name, " ", "")])
 
-    prepped_projections =
-      grouped_projections
-      |> Enum.group_by(& &1.name)
-      |> Enum.map(fn {_name, projs} ->
-        events =
-          Enum.flat_map(projs, fn proj ->
-            Enum.filter(edge_list, fn %{v2: proj_id} ->
-              proj_id == proj.id
-            end)
-            |> Enum.map(& &1.v1)
-            |> Enum.map(&node_map[&1])
-          end)
-
-        [proj | _] = projs
-        %{projection: proj, events: events}
-      end)
-
-    Enum.reduce(prepped_projections, orig_model, fn node, model ->
-      eh_node = node.projection
-      module = Module.concat([namespace, String.replace(eh_node.name, " ", "")])
+      events =
+        group.ids
+        |> Enum.flat_map(&SourceGraph.incoming(graph, &1))
+        |> Enum.uniq()
 
       proj = %Projection{
-        name: eh_node.name,
-        module: module
+        name: group.name,
+        module: module,
+        fields: fields(group)
       }
 
-      handler =
-        Enum.reduce(node.events, proj, fn evt, evth ->
-          event = Event.new(Module.concat([module, Events]), evt.name, evt.fields)
-          Projection.add_event(evth, event)
+      projector =
+        Enum.reduce(events, proj, fn evt, proj ->
+          event = event_map[evt.id]
+          Projection.add_event(proj, event)
         end)
 
-      Model.add_projection(model, handler)
+      Model.add_projection(model, projector)
     end)
   end
 end

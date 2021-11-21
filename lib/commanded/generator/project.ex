@@ -47,7 +47,7 @@ defmodule Commanded.Generator.Project do
 
   def build_model(%Project{} = project, source, args) do
     case source.build(args) do
-      {:ok, model} ->
+      {:ok, %{model: model}} ->
         {:ok, %Project{project | model: model}}
 
       {:error, error_term} ->
