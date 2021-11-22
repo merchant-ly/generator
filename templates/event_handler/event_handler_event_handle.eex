@@ -1,0 +1,4 @@
+@impl Commanded.Event.Handler
+def handle(%<%= @event.module %>{}, _metadata) do
+  :ok
+end

@@ -1,0 +1,3 @@
+project %<%= @event.module %>{}, _metadata, fn multi ->
+  multi
+end

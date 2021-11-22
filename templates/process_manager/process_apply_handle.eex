@@ -1,0 +1,4 @@
+@impl Commanded.ProcessManagers.ProcessManager
+def apply(%<%= @process_manager_module %>{} = state, %<%= @event.module %>{}) do
+  state
+end

@@ -1,0 +1,4 @@
+@impl Commanded.ProcessManagers.ProcessManager
+def interested?(%<%= @event.module %>{}) do
+  # TODO: {:start, process_uuid} | {:continue, process_uuid} | {:stop, process_uuid}
+end

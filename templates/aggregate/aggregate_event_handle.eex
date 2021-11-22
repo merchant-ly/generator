@@ -1,0 +1,3 @@
+def apply(%<%= @aggregate_module %>{} = state, %<%= @event.module %>{}) do
+  state
+end
