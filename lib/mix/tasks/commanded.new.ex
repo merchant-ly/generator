@@ -61,6 +61,7 @@ defmodule Mix.Tasks.Commanded.New do
     module: :string,
     prefix: :string,
     projections: :boolean,
+    update: :boolean,
     verbose: :boolean
   ]
 

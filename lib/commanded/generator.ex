@@ -131,7 +131,11 @@ defmodule Commanded.Generator do
               do: [format_string!(contents, name), ?\n],
               else: contents
 
-          if overwrite?(target, contents) do
+          should_put_file? =
+            not (source =~ "create_projection_versions") or
+              project.binding[:projection_versions_migration_timestamp]
+
+          if should_put_file? and overwrite?(target, contents) do
             create_file(target, contents, force: true)
           else
             log(:blue, :ignoring, Path.relative_to_cwd(target), project.opts)

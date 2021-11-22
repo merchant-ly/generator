@@ -87,14 +87,25 @@ defmodule Commanded.Generator.New do
     }
   end
 
+  defp put_projection_migration(%Project{opts: opts} = project) do
+    IO.inspect(project)
+
+    if Keyword.get(opts, :update, false) do
+      project
+    else
+      Project.put_binding(
+        project,
+        :projection_versions_migration_timestamp,
+        timestamp() <> "_create_projection_versions"
+      )
+    end
+  end
+
   def generate(%Project{} = project) do
     project =
       project
       |> new_project_binding()
-      |> Project.put_binding(
-        :projection_versions_migration_timestamp,
-        timestamp() <> "_create_projection_versions"
-      )
+      |> put_projection_migration()
 
     copy_from(project, __MODULE__, :new)
 
