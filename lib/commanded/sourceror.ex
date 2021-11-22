@@ -225,8 +225,7 @@ defmodule Commanded.Generator.Sourceror do
 
   def projection_def(
         z,
-        {:project, meta,
-         [{:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]}, _, {:fn, _, _}]},
+        {:project, meta, [{:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]}, _, _]},
         %{events: events}
       ) do
     end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
@@ -247,32 +246,39 @@ defmodule Commanded.Generator.Sourceror do
 
   def handler_def(
         z,
-        {:handle, meta, [{:=, _, [inside, _block]}, second, third]},
+        {:def, meta, [{:when, _meta, ok}, _]},
         map
       ) do
-    handler_def(z, {:handle, meta, [inside, second, third]}, map)
+    handler_def(z, {:def, meta, ok}, map)
   end
 
   def handler_def(
         z,
-        {:handle, meta, [first, {:=, _, [inside, _block]}, third]},
+        {:def, meta, [{which, _, [{:=, _, [inside, _block]}, second]}, _]},
         map
       ) do
-    handler_def(z, {:handle, meta, [first, inside, third]}, map)
+    handler_def(z, {:def, meta, [{which, nil, [inside, second]}, nil]}, map)
   end
 
   def handler_def(
         z,
-        {:handle, meta, [first, second, {:=, _, [inside, _block]}]},
+        {:def, meta, [{which, _, [first, {:=, _, [inside, _block]}]}, _]},
         map
       ) do
-    handler_def(z, {:handle, meta, [first, second, inside]}, map)
+    handler_def(z, {:def, meta, [{which, nil, [first, inside]}, nil]}, map)
   end
 
   def handler_def(
         z,
-        {:handle, meta,
-         [{:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]}, _, {:fn, _, _}]},
+        {:def, meta,
+         [
+           {:handle, _,
+            [
+              {:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]},
+              _
+            ]},
+           _
+         ]},
         %{events: events}
       ) do
     end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
@@ -281,7 +287,7 @@ defmodule Commanded.Generator.Sourceror do
     handler_def(z, Z.node(z), %{events: [{event_name_list, end_of_expression} | events]})
   end
 
-  def handler_def(z, _node, context) do
+  def handler_def(z, node, context) do
     z = Z.right(z)
 
     if is_nil(z) do

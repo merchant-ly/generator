@@ -50,7 +50,10 @@ defmodule Commanded.Generator.New do
   ])
 
   template(:event_handler, [
-    {:eex, "event_handler/event_handler.ex", :project, "lib/:app/handlers/:event_handler.ex"}
+    {{:eex_plus,
+      %{
+        handle: "event_handler/event_handler_event_handle.eex"
+      }}, "event_handler/event_handler.ex", :project, "lib/:app/handlers/:event_handler.ex"}
   ])
 
   template(:process_manager, [
