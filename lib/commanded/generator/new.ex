@@ -14,23 +14,23 @@ defmodule Commanded.Generator.New do
   }
 
   template(:new, [
-    {:eex, "commanded/config/config.exs", :project, "config/config.exs"},
-    {:eex, "commanded/config/dev.exs", :project, "config/dev.exs"},
-    {:eex, "commanded/config/prod.exs", :project, "config/prod.exs"},
-    {:eex, "commanded/config/runtime.exs", :project, "config/runtime.exs"},
-    {:eex, "commanded/config/test.exs", :project, "config/test.exs"},
-    {:eex, "commanded/lib/app_name/app.ex", :project, "lib/:app/app.ex"},
-    {:eex, "commanded/lib/app_name/application.ex", :project, "lib/:app/application.ex"},
-    {:eex, "commanded/lib/app_name/event_store.ex", :project, "lib/:app/event_store.ex"},
-    {:eex, "commanded/lib/app_name/repo.ex", :project, "lib/:app/repo.ex"},
-    {:eex, "commanded/lib/app_name/router.ex", :project, "lib/:app/router.ex"},
-    {:eex, "commanded/lib/app_name.ex", :project, "lib/:app.ex"},
+    # {:eex, "commanded/config/config.exs", :project, "config/config.exs"},
+    # {:eex, "commanded/config/dev.exs", :project, "config/dev.exs"},
+    # {:eex, "commanded/config/prod.exs", :project, "config/prod.exs"},
+    # {:eex, "commanded/config/runtime.exs", :project, "config/runtime.exs"},
+    # {:eex, "commanded/config/test.exs", :project, "config/test.exs"},
+    # {:eex, "commanded/lib/app_name/app.ex", :project, "lib/app.ex"},
+    # {:eex, "commanded/lib/app_name/application.ex", :project, "lib/application.ex"},
+    # {:eex, "commanded/lib/app_name/event_store.ex", :project, "lib/event_store.ex"},
+    {:eex, "commanded/lib/app_name/repo.ex", :project, "lib/repo.ex"},
+    {:eex, "commanded/lib/app_name/router.ex", :project, "lib/router.ex"},
+    # {:eex, "commanded/lib/app_name.ex", :project, "lib/:app.ex"},
     {:eex, "commanded/priv/repo/migrations/create_projection_versions.exs", :project,
-     "priv/repo/migrations/:projection_versions_migration_timestamp.exs"},
-    {:eex, "commanded/test/test_helper.exs", :project, "test/test_helper.exs"},
-    {:eex, "commanded/formatter.exs", :project, ".formatter.exs"},
-    {:eex, "commanded/mix.exs", :project, "mix.exs"},
-    {:eex, "commanded/README.md", :project, "README.md"}
+     "priv/repo/migrations/:projection_versions_migration_timestamp.exs"}
+    # {:eex, "commanded/test/test_helper.exs", :project, "test/test_helper.exs"},
+    # {:eex, "commanded/formatter.exs", :project, ".formatter.exs"},
+    # {:eex, "commanded/mix.exs", :project, "mix.exs"}
+    # {:eex, "commanded/README.md", :project, "README.md"}
   ])
 
   template(:aggregate, [
@@ -38,7 +38,7 @@ defmodule Commanded.Generator.New do
       %{
         command: "aggregate/aggregate_command_execute.eex",
         event: "aggregate/aggregate_event_handle.eex"
-      }}, "aggregate/aggregate.ex", :project, "lib/:app/:aggregate/:aggregate.ex"}
+      }}, "aggregate/aggregate.ex", :project, "lib/:aggregate/:aggregate.ex"}
   ])
 
   template(:command, [
@@ -52,8 +52,8 @@ defmodule Commanded.Generator.New do
   template(:event_handler, [
     {{:eex_plus,
       %{
-        handle: "event_handler/event_handler_event_handle.eex"
-      }}, "event_handler/event_handler.ex", :project, "lib/:app/handlers/:event_handler.ex"}
+        event: "event_handler/event_handler_event_handle.eex"
+      }}, "event_handler/event_handler.ex", :project, "lib/handlers/:event_handler.ex"}
   ])
 
   template(:process_manager, [
@@ -62,14 +62,13 @@ defmodule Commanded.Generator.New do
         handle: "process_manager/process_event_handle.eex",
         apply: "process_manager/process_apply_handle.eex",
         interested: "process_manager/process_interested_handle.eex"
-      }}, "process_manager/process_manager.ex", :project,
-     "lib/:app/processes/:process_manager.ex"}
+      }}, "process_manager/process_manager.ex", :project, "lib/processes/:process_manager.ex"}
   ])
 
   template(:projection, [
     {{:eex_plus, %{event: "projection/projector_event_handle.eex"}}, "projection/projector.ex",
-     :project, "lib/:app/projections/:projector.ex"},
-    {:eex, "projection/projection.ex", :project, "lib/:app/projections/:projection.ex"}
+     :project, "lib/projections/:projector.ex"},
+    {:eex, "projection/projection.ex", :project, "lib/projections/:projection.ex"}
   ])
 
   def prepare_project(%Project{app: app} = project) when not is_nil(app) do
