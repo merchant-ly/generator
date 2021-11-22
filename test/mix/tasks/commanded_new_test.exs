@@ -290,9 +290,9 @@ defmodule Mix.Tasks.Commanded.NewTest do
 
         assert file =~
                  """
-                   project(%ConferenceCreated{}, _metadata, fn multi ->
+                   project %ConferenceCreated{}, _metadata, fn multi ->
                      multi
-                   end)
+                   end
                  """
 
         assert file =~
@@ -408,7 +408,7 @@ defmodule Mix.Tasks.Commanded.NewTest do
     assert_file("my_app/README.md")
 
     assert_file("my_app/.formatter.exs", fn file ->
-      assert file =~ "import_deps: [:commanded]"
+      assert file =~ "import_deps: [:commanded, :commanded_ecto_projections]"
       assert file =~ "inputs: [\"*.{ex,exs}\", \"{config,lib,test}/**/*.{ex,exs}\"]"
     end)
 
