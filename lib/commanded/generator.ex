@@ -132,10 +132,10 @@ defmodule Commanded.Generator do
               else: contents
 
           should_put_file? =
-            not (source =~ "create_projection_versions") or
+            not (source =~ "create_projection_versions") ||
               project.binding[:projection_versions_migration_timestamp]
 
-          if should_put_file? and overwrite?(target, contents) do
+          if should_put_file? && overwrite?(target, contents) do
             create_file(target, contents, force: true)
           else
             log(:blue, :ignoring, Path.relative_to_cwd(target), project.opts)
@@ -146,17 +146,17 @@ defmodule Commanded.Generator do
             {:ok, target_str} ->
               case name do
                 :aggregate ->
-                  {missing_events, _extra_events, events_end_of_expression} =
+                  {missing_events, extra_events, events_end_of_expression} =
                     compare_events(project, target_str, &aggregate_def/3, :events)
 
-                  {missing_commands, _extra_commands, commands_end_of_expression} =
+                  {missing_commands, extra_commands, commands_end_of_expression} =
                     compare_commands(project, target_str, &aggregate_def/3, :commands)
 
                   any_events_missing? = not Enum.empty?(missing_events)
-                  # any_events_extra? = not Enum.empty?(extra_events)
+                  any_events_extra? = not Enum.empty?(extra_events)
 
                   any_commands_missing? = not Enum.empty?(missing_commands)
-                  # any_commands_extra? = not Enum.empty?(extra_commands)
+                  any_commands_extra? = not Enum.empty?(extra_commands)
 
                   event_patches =
                     if any_events_missing? do
@@ -213,12 +213,37 @@ defmodule Commanded.Generator do
                   patches = event_patches ++ command_patches
 
                   # finally apply all patches
-                  if Enum.empty?(patches) do
-                    log(:blue, :ignoring, Path.relative_to_cwd(target), project.opts)
-                  else
+                  if not Enum.empty?(patches) do
                     final_contents = Sourceror.patch_string(target_str, patches)
 
                     create_file(target, [format_string!(final_contents, name), ?\n], force: true)
+                  end
+
+                  if any_commands_extra? do
+                    extra_str = Enum.join(extra_commands, ",")
+
+                    log(
+                      :red,
+                      "extraneous commands",
+                      "[#{extra_str}] in #{Path.relative_to_cwd(target)}",
+                      project.opts
+                    )
+                  end
+
+                  if any_events_extra? do
+                    extra_str = Enum.join(extra_events, ",")
+
+                    log(
+                      :red,
+                      "extraneous events",
+                      "[#{extra_str}] in #{Path.relative_to_cwd(target)}",
+                      project.opts
+                    )
+                  end
+
+                  if not any_commands_extra? and not any_events_extra? and
+                       not any_commands_missing? and not any_events_missing? do
+                    log(:blue, :ignoring, Path.relative_to_cwd(target), project.opts)
                   end
 
                 :process_manager ->
@@ -435,6 +460,56 @@ defmodule Commanded.Generator do
                 :projection ->
                   {missing_events, extra_events, end_of_expression} =
                     compare_events(project, target_str, &projection_def/3)
+
+                  any_missing? = not Enum.empty?(missing_events)
+                  any_extra? = not Enum.empty?(extra_events)
+
+                  if any_missing? do
+                    missing_str = Enum.join(missing_events, ", ")
+
+                    log(
+                      :yellow,
+                      "appending missing events",
+                      "[#{missing_str}] to #{Path.relative_to_cwd(target)}",
+                      project.opts
+                    )
+
+                    # Problematic if someone has manually deleted _all_ of the events
+                    line = end_of_expression[:line] + 1
+
+                    patches =
+                      patch_events(
+                        project.binding,
+                        mod,
+                        missing_events,
+                        name,
+                        add_files.event,
+                        line
+                      )
+
+                    final_contents = Sourceror.patch_string(target_str, patches)
+
+                    create_file(target, [format_string!(final_contents, name), ?\n], force: true)
+                  end
+
+                  if any_extra? do
+                    extra_str = Enum.join(extra_events, ",")
+
+                    log(
+                      :red,
+                      "extraneous events",
+                      "[#{extra_str}] in #{Path.relative_to_cwd(target)}",
+                      project.opts
+                    )
+                  end
+
+                  if not any_extra? and not any_missing? do
+                    log(:blue, :ignoring, Path.relative_to_cwd(target), project.opts)
+                  end
+
+                :event_handler ->
+                  {missing_events, extra_events, end_of_expression} =
+                    compare_events(project, target_str, &handler_def/3)
 
                   any_missing? = not Enum.empty?(missing_events)
                   any_extra? = not Enum.empty?(extra_events)

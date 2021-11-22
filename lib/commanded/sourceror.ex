@@ -89,7 +89,7 @@ defmodule Commanded.Generator.Sourceror do
     })
   end
 
-  def aggregate_def(z, node, context) do
+  def aggregate_def(z, _node, context) do
     # Handle nils after right/down better here and in process/proj
     if is_nil(z) do
       context
@@ -242,6 +242,52 @@ defmodule Commanded.Generator.Sourceror do
       context.events
     else
       projection_def(z, Z.node(z), context)
+    end
+  end
+
+  def handler_def(
+        z,
+        {:handle, meta, [{:=, _, [inside, _block]}, second, third]},
+        map
+      ) do
+    handler_def(z, {:handle, meta, [inside, second, third]}, map)
+  end
+
+  def handler_def(
+        z,
+        {:handle, meta, [first, {:=, _, [inside, _block]}, third]},
+        map
+      ) do
+    handler_def(z, {:handle, meta, [first, inside, third]}, map)
+  end
+
+  def handler_def(
+        z,
+        {:handle, meta, [first, second, {:=, _, [inside, _block]}]},
+        map
+      ) do
+    handler_def(z, {:handle, meta, [first, second, inside]}, map)
+  end
+
+  def handler_def(
+        z,
+        {:handle, meta,
+         [{:%, _, [{:__aliases__, _, event_name_list}, {:%{}, _, _}]}, _, {:fn, _, _}]},
+        %{events: events}
+      ) do
+    end_of_expression = Keyword.get(meta, :end_of_expression) || Keyword.get(meta, :end)
+    z = Z.right(z)
+
+    handler_def(z, Z.node(z), %{events: [{event_name_list, end_of_expression} | events]})
+  end
+
+  def handler_def(z, _node, context) do
+    z = Z.right(z)
+
+    if is_nil(z) do
+      context.events
+    else
+      handler_def(z, Z.node(z), context)
     end
   end
 end

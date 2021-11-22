@@ -88,8 +88,6 @@ defmodule Commanded.Generator.New do
   end
 
   defp put_projection_migration(%Project{opts: opts} = project) do
-    IO.inspect(project)
-
     if Keyword.get(opts, :update, false) do
       project
     else
