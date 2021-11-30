@@ -236,7 +236,7 @@ defmodule Commanded.Generator.New do
       command_name: name,
       command_module: module,
       command_namespace: namespace,
-      command_path: Macro.underscore(namespace),
+      command_path: Macro.underscore(namespace |> String.trim_leading("Commerce.")),
       fields: fields
     ]
   end
@@ -251,7 +251,7 @@ defmodule Commanded.Generator.New do
       event_name: name,
       event_module: module,
       event_namespace: namespace,
-      event_path: Macro.underscore(namespace),
+      event_path: Macro.underscore(namespace |> String.trim_leading("Commerce.")),
       fields: fields
     ]
   end
