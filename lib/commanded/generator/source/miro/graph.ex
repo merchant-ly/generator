@@ -430,7 +430,7 @@ defmodule Commanded.Generator.Source.Miro.Graph do
     {name_parts, fields} =
       Enum.reduce(parsed, {[], []}, fn
         {"p", _attrs, [text]}, {name_parts, fields} ->
-          case Regex.split(~r/^[^A-Za-z]/, text) do
+          case Regex.split(~r/^[^A-Za-z]/, String.trim(text)) do
             [_prefix, name] ->
               # Field
               name = String.trim(name)
